@@ -17,7 +17,8 @@ import {
 import { auth, db } from './firebase';
 import { REMEDY_ORDER } from './data.js';
 
-const DEFAULT_UNLOCKED = REMEDY_ORDER.map(r => r.toUpperCase());
+// Remedies 1-10 are unlocked by default; 11-20 must be earned sequentially
+const DEFAULT_UNLOCKED = REMEDY_ORDER.slice(0, 10).map(r => r.toUpperCase());
 
 const AuthContext = createContext(null);
 
@@ -60,7 +61,12 @@ export const AuthProvider = ({ children }) => {
 
         if (snap.exists()) {
           const data = snap.data();
-          setUnlockedRemedies(data?.unlockedRemedies?.length ? data.unlockedRemedies : DEFAULT_UNLOCKED);
+          // Merge first-10 defaults with any remedies explicitly granted by an admin.
+          // We deliberately ignore the legacy `unlockedRemedies` field for 11-20 so
+          // old accounts with all-20 unlocked can't bypass the admin gate.
+          const adminGranted = (data?.adminGrantedRemedies || []).map(r => r.toUpperCase());
+          const effective = [...new Set([...DEFAULT_UNLOCKED, ...adminGranted])];
+          setUnlockedRemedies(effective);
           setDisplayName(data?.displayName || '');
           setLevelsCompleted(data?.levelsCompleted || []);
         } else {

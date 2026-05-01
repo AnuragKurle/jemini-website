@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { playSound } from '../lib/audio';
 import { IconLock, IconCheck } from '../components/Icons';
-import { getFullRemedyList, getSymptomCount } from '../lib/data';
+import { getFullRemedyList, getSymptomCount, REMEDY_ORDER } from '../lib/data';
 import { db } from '../lib/firebase';
 import { useAuth } from '../lib/auth.jsx';
 
@@ -58,9 +58,20 @@ const RemedyListView = ({ setView, setSelectedRemedy }) => {
                         const hasCompleted = levelsCompleted?.some(
                             (level) => level.remedy?.toUpperCase?.() === remedy.name.toUpperCase()
                         );
-                        const locked = false; // All remedies are always unlocked
+
+                        // Remedies 1-10 (order 0-9) are always open.
+                        // Remedies 11-20 (order 10-19) are locked unless an admin has explicitly
+                        // granted access via adminGrantedRemedies in Firestore.
+                        const staticOrder = REMEDY_ORDER.findIndex(
+                            r => r.toUpperCase() === remedy.name.toUpperCase()
+                        );
+                        const needsUnlock = !remedy.isCustom && staticOrder >= 10;
+                        const isUnlocked = !needsUnlock ||
+                            unlockedRemedies?.some(r => r.toUpperCase() === remedy.name.toUpperCase());
+                        const locked = !isUnlocked;
+
                         const info = remedyInfo[remedy.name];
-                        const canPlay = info?.easy; // Need at least 4 symptoms to play
+                        const canPlay = !locked && info?.easy; // Need unlock + at least 4 symptoms
 
                         return (
                             <div
@@ -72,13 +83,16 @@ const RemedyListView = ({ setView, setSelectedRemedy }) => {
                                         setView('difficulty');
                                     }
                                 }}
-                                className={`flex items-center justify-between p-4 rounded-xl cursor-pointer transition transform hover:scale-[1.02] ${!canPlay
-                                    ? 'bg-blue-100/50 opacity-60'
-                                    : 'bg-white hover:bg-blue-50 border-2 border-blue-200 shadow-sm'
-                                    }`}
+                                className={`flex items-center justify-between p-4 rounded-xl transition transform ${
+                                    locked
+                                        ? 'bg-gray-100/70 opacity-60 cursor-not-allowed'
+                                        : !canPlay
+                                            ? 'bg-blue-100/50 opacity-60 cursor-not-allowed'
+                                            : 'bg-white hover:bg-blue-50 border-2 border-blue-200 shadow-sm cursor-pointer hover:scale-[1.02]'
+                                }`}
                             >
                                 <div className="flex flex-col">
-                                    <span className="font-bold text-blue-900 capitalize text-lg">
+                                    <span className={`font-bold capitalize text-lg ${locked ? 'text-gray-400' : 'text-blue-900'}`}>
                                         {index + 1}) {remedy.name}
                                         {remedy.isCustom && <span className="ml-1 text-purple-500">✨</span>}
                                     </span>
@@ -86,7 +100,9 @@ const RemedyListView = ({ setView, setSelectedRemedy }) => {
                                         {info && isAdmin && <span className="text-xs text-gray-400">{info.count} symptoms</span>}
                                     </div>
                                 </div>
-                                {!canPlay ? (
+                                {locked ? (
+                                    <span className="text-gray-400"><IconLock /></span>
+                                ) : !canPlay ? (
                                     isAdmin ? (
                                         <span className="text-xs text-gray-500">Need 4+ symptoms</span>
                                     ) : (

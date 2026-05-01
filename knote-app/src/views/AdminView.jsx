@@ -1,8 +1,9 @@
 import React, { useState, useEffect } from 'react';
-import { collection, getDocs, query, orderBy } from 'firebase/firestore';
+import { collection, getDocs, query, orderBy, doc, updateDoc, arrayUnion, arrayRemove } from 'firebase/firestore';
 import { db } from '../lib/firebase';
 import { useAuth } from '../lib/auth.jsx';
 import { playSound } from '../lib/audio';
+import { REMEDY_ORDER } from '../lib/data';
 
 // Format seconds into a human-readable duration
 const formatTotalTime = (totalSeconds) => {
@@ -67,6 +68,73 @@ const ExpandedLevels = ({ user }) => {
     );
 };
 
+// Remedies 11-20 (indices 10-19) that admins can unlock per user
+const LOCKABLE_REMEDIES = REMEDY_ORDER.slice(10);
+
+const RemedyUnlockPanel = ({ user, onUpdate }) => {
+    const [saving, setSaving] = useState(null); // remedy name being toggled
+
+    const granted = (user.adminGrantedRemedies || []).map(r => r.toUpperCase());
+    const isGranted = (name) => granted.includes(name.toUpperCase());
+
+    const toggle = async (remedyName) => {
+        setSaving(remedyName);
+        try {
+            const userRef = doc(db, 'users', user.id);
+            if (isGranted(remedyName)) {
+                await updateDoc(userRef, { adminGrantedRemedies: arrayRemove(remedyName) });
+                onUpdate(user.id, (user.adminGrantedRemedies || []).filter(r => r.toUpperCase() !== remedyName.toUpperCase()));
+            } else {
+                await updateDoc(userRef, { adminGrantedRemedies: arrayUnion(remedyName) });
+                onUpdate(user.id, [...(user.adminGrantedRemedies || []), remedyName]);
+            }
+            playSound('match');
+        } catch (err) {
+            console.error('Failed to update remedy access:', err);
+        } finally {
+            setSaving(null);
+        }
+    };
+
+    return (
+        <div className="mt-3 pt-3 border-t border-gray-100">
+            <div className="text-xs font-bold text-purple-900 mb-3">Remedy Access (11–20):</div>
+            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2">
+                {LOCKABLE_REMEDIES.map((name, i) => {
+                    const unlocked = isGranted(name);
+                    const isSaving = saving === name;
+                    return (
+                        <button
+                            key={name}
+                            onClick={() => toggle(name)}
+                            disabled={!!saving}
+                            className={`flex flex-col items-center gap-1.5 p-3 rounded-xl border-2 transition-all text-center disabled:opacity-40 ${
+                                unlocked
+                                    ? 'bg-green-50 border-green-400 hover:bg-red-50 hover:border-red-300'
+                                    : 'bg-gray-50 border-gray-300 hover:bg-green-50 hover:border-green-400'
+                            }`}
+                        >
+                            <span className="text-2xl leading-none">
+                                {isSaving ? '⏳' : unlocked ? '🔓' : '🔒'}
+                            </span>
+                            <span className="text-[10px] font-bold text-gray-700 leading-tight">
+                                #{i + 11} {name}
+                            </span>
+                            <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded-full ${
+                                unlocked
+                                    ? 'bg-green-200 text-green-800'
+                                    : 'bg-gray-200 text-gray-600'
+                            }`}>
+                                {unlocked ? 'UNLOCKED' : 'LOCKED'}
+                            </span>
+                        </button>
+                    );
+                })}
+            </div>
+        </div>
+    );
+};
+
 const AdminView = ({ setView }) => {
     const { isAdmin } = useAuth();
     const [users, setUsers] = useState([]);
@@ -75,6 +143,8 @@ const AdminView = ({ setView }) => {
     const [searchTerm, setSearchTerm] = useState('');
     const [sortBy, setSortBy] = useState('lastActiveAt');
     const [expandedUser, setExpandedUser] = useState(null);
+    const [bulkOpen, setBulkOpen] = useState(false);
+    const [bulkSaving, setBulkSaving] = useState(null);
 
     useEffect(() => {
         if (!isAdmin) {
@@ -89,9 +159,9 @@ const AdminView = ({ setView }) => {
                 const q = query(usersRef, orderBy('createdAt', 'desc'));
                 const snapshot = await getDocs(q);
 
-                const userData = snapshot.docs.map(doc => ({
-                    id: doc.id,
-                    ...doc.data()
+                const userData = snapshot.docs.map(d => ({
+                    id: d.id,
+                    ...d.data()
                 }));
 
                 setUsers(userData);
@@ -105,6 +175,30 @@ const AdminView = ({ setView }) => {
 
         fetchUsers();
     }, [isAdmin, setView]);
+
+    const handleBulkUnlock = async (remedyName) => {
+        setBulkSaving(remedyName);
+        try {
+            await Promise.all(
+                users.map(u => updateDoc(doc(db, 'users', u.id), { adminGrantedRemedies: arrayUnion(remedyName) }))
+            );
+            setUsers(prev => prev.map(u => ({
+                ...u,
+                adminGrantedRemedies: [...new Set([...(u.adminGrantedRemedies || []), remedyName])]
+            })));
+            playSound('win');
+        } catch (err) {
+            console.error('Bulk unlock failed:', err);
+        } finally {
+            setBulkSaving(null);
+        }
+    };
+
+    const handleRemedyUpdate = (userId, newAdminGranted) => {
+        setUsers(prev => prev.map(u =>
+            u.id === userId ? { ...u, adminGrantedRemedies: newAdminGranted } : u
+        ));
+    };
 
     const filteredUsers = users.filter(user =>
         user.email?.toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -201,6 +295,42 @@ const AdminView = ({ setView }) => {
                 ))}
             </div>
 
+            {/* Bulk Unlock */}
+            <div className="bg-white rounded-2xl sm:rounded-3xl p-3 sm:p-5 shadow-lg border border-purple-50 mb-4">
+                <button
+                    className="w-full flex items-center justify-between font-bold text-purple-900 text-sm"
+                    onClick={() => setBulkOpen(v => !v)}
+                >
+                    <span>🔓 Bulk Unlock Remedies (11–20)</span>
+                    <span className={`transition-transform duration-200 ${bulkOpen ? 'rotate-180' : ''}`}>▼</span>
+                </button>
+                {bulkOpen && (
+                    <div className="mt-3 flex flex-wrap gap-2">
+                        {LOCKABLE_REMEDIES.map((name, i) => {
+                            const unlockedForAll = users.length > 0 && users.every(u =>
+                                (u.adminGrantedRemedies || []).some(r => r.toUpperCase() === name.toUpperCase())
+                            );
+                            const isSaving = bulkSaving === name;
+                            return (
+                                <button
+                                    key={name}
+                                    disabled={!!bulkSaving || unlockedForAll}
+                                    onClick={() => handleBulkUnlock(name)}
+                                    className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold border transition disabled:opacity-50 ${
+                                        unlockedForAll
+                                            ? 'bg-green-50 border-green-300 text-green-800 cursor-default'
+                                            : 'bg-purple-50 border-purple-200 text-purple-800 hover:bg-purple-100'
+                                    }`}
+                                >
+                                    {isSaving ? <span className="animate-spin">⟳</span> : unlockedForAll ? '🔓' : '🔒'}
+                                    {unlockedForAll ? `#${i + 11} ${name} — all unlocked` : `Unlock #${i + 11} ${name} for all`}
+                                </button>
+                            );
+                        })}
+                    </div>
+                )}
+            </div>
+
             {/* Player List */}
             <div className="bg-white rounded-2xl sm:rounded-3xl p-3 sm:p-6 shadow-2xl border border-blue-50 mb-4">
                 {loading ? (
@@ -248,6 +378,7 @@ const AdminView = ({ setView }) => {
                                         {isExpanded && (
                                             <div className="px-3 pb-3 pt-1 border-t border-gray-100">
                                                 <ExpandedLevels user={user} />
+                                                <RemedyUnlockPanel user={user} onUpdate={handleRemedyUpdate} />
                                             </div>
                                         )}
                                     </div>
@@ -303,6 +434,7 @@ const AdminView = ({ setView }) => {
                                                 <tr className="bg-gray-50/50">
                                                     <td colSpan="6" className="p-6">
                                                         <ExpandedLevels user={user} />
+                                                        <RemedyUnlockPanel user={user} onUpdate={handleRemedyUpdate} />
                                                     </td>
                                                 </tr>
                                             )}

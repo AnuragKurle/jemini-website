@@ -22,10 +22,8 @@ const ScoreSummaryScreen = ({
 
     const newTotal = previousTotalScore + levelScore;
     const nextLevelName = difficulty === 'EASY' ? 'MEDIUM' : 'HARD';
-
-    // Check if next level actually has enough symptoms
-    const nextLevelRequiredSymptoms = nextLevelName === 'MEDIUM' ? 8 : 12;
-    const hasNextLevel = difficulty !== 'HARD' && (availableSymptomCount || 0) >= nextLevelRequiredSymptoms;
+    const hasNextLevel = difficulty !== 'HARD';
+    const allLevelsComplete = difficulty === 'HARD';
 
     // Player Rank Logic
     const getRank = (score) => {
@@ -95,8 +93,12 @@ const ScoreSummaryScreen = ({
             <div className="bg-white/90 backdrop-blur-xl rounded-[2.5rem] shadow-2xl p-6 sm:p-10 max-w-sm w-full text-center relative z-10 border border-white/50">
 
                 {/* Ribbon / Header */}
-                <div className="inline-block px-4 py-1.5 rounded-full bg-blue-50 text-blue-600 font-bold text-xs tracking-widest uppercase mb-4 shadow-sm border border-blue-100">
-                    Level Complete
+                <div className={`inline-block px-4 py-1.5 rounded-full font-bold text-xs tracking-widest uppercase mb-4 shadow-sm border ${
+                    allLevelsComplete
+                        ? 'bg-yellow-50 text-yellow-700 border-yellow-200'
+                        : 'bg-blue-50 text-blue-600 border-blue-100'
+                }`}>
+                    {allLevelsComplete ? '🏆 All Levels Complete!' : 'Level Complete'}
                 </div>
 
                 <div className="mb-6">
@@ -129,7 +131,7 @@ const ScoreSummaryScreen = ({
 
                 {/* Action Buttons */}
                 <div className="flex flex-col gap-3 mt-4">
-                    {hasNextLevel && animationPhase === 'total' ? (
+                    {animationPhase === 'total' && hasNextLevel && (
                         <button
                             onClick={handleNextLevel}
                             className="group relative w-full py-4 bg-gradient-to-r from-green-500 to-emerald-600 text-white rounded-2xl font-bold text-lg shadow-xl shadow-green-200 transition-all hover:scale-[1.02] active:scale-[0.98]"
@@ -140,12 +142,16 @@ const ScoreSummaryScreen = ({
                                 <IconArrowRight />
                             </div>
                         </button>
-                    ) : null}
+                    )}
 
                     {animationPhase === 'total' && (
                         <button
                             onClick={() => { try { playSound('tap'); } catch (e) { } onNextRemedy?.(); }}
-                            className="w-full py-4 rounded-xl font-bold text-sm transition-colors flex items-center justify-center gap-2 border border-blue-200 text-blue-600 hover:bg-blue-50"
+                            className={`w-full py-4 rounded-2xl font-bold text-sm transition-all flex items-center justify-center gap-2 ${
+                                allLevelsComplete
+                                    ? 'bg-gradient-to-r from-blue-500 to-indigo-600 text-white shadow-xl shadow-blue-200 hover:scale-[1.02] active:scale-[0.98]'
+                                    : 'border border-blue-200 text-blue-600 hover:bg-blue-50'
+                            }`}
                         >
                             Next Remedy
                             <IconArrowRight />
