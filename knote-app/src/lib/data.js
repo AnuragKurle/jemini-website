@@ -72,8 +72,7 @@ export const ARNICA_MONTANA_DATA = [
 export const REMEDY_DATA_MAP = {
     'Cina': CINA_DATA,
     'Arnica Montana': ARNICA_MONTANA_DATA,
-    // Add placeholders for others to prevent crashes
-    'default': CINA_DATA
+    'default': []
 };
 
 import { collection, query, where, getDocs } from 'firebase/firestore';
