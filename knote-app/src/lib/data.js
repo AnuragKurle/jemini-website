@@ -87,65 +87,54 @@ import { collection, query, where, getDocs } from 'firebase/firestore';
  * @returns {Promise<Array>} Combined symptom array filtered to the specified difficulty
  */
 export const getRemedyData = async (remedyName, db, difficulty) => {
-    // Get static symptoms
-    const baseSymptoms = REMEDY_DATA_MAP[remedyName] || REMEDY_DATA_MAP['default'];
+    const hasOwnStaticData = Object.prototype.hasOwnProperty.call(REMEDY_DATA_MAP, remedyName);
+    const ownStaticSymptoms = hasOwnStaticData ? REMEDY_DATA_MAP[remedyName] : [];
 
     try {
-        // Fetch overrides for static symptoms
+        // Fetch overrides (only meaningful for remedies with own static data)
         const overridesRef = collection(db, 'symptomOverrides');
-        const overridesQuery = query(
-            overridesRef,
-            where('remedyName', '==', remedyName)
-        );
-        const overridesSnapshot = await getDocs(overridesQuery);
+        const overridesSnapshot = await getDocs(query(overridesRef, where('remedyName', '==', remedyName)));
 
-        // Build overrides map
         const overrides = {};
         overridesSnapshot.docs.forEach(doc => {
             const data = doc.data();
             overrides[data.originalId] = data;
         });
 
-        // Apply overrides to static symptoms (static symptoms default to difficulty 1=Easy)
-        const staticSymptoms = baseSymptoms.map(sym => {
+        const staticSymptoms = ownStaticSymptoms.map(sym => {
             const override = overrides[sym.id];
-            // Skip if override marks it as inactive/deleted
-            if (override && override.isActive === false) {
-                return null;
-            }
+            if (override && override.isActive === false) return null;
             return {
                 id: sym.id,
                 text: override?.text || sym.text,
                 emoji: override?.emoji || sym.emoji,
                 imageUrl: override?.imageUrl || null,
-                difficulty: override?.difficulty || 1 // Default to Easy for static symptoms
+                difficulty: override?.difficulty || 1
             };
         }).filter(Boolean);
 
         // Fetch custom symptoms from Firestore
         const customRef = collection(db, 'customSymptoms');
-        const q = query(
-            customRef,
-            where('remedyName', '==', remedyName),
-            where('isActive', '==', true)
-        );
-        const snapshot = await getDocs(q);
+        const snapshot = await getDocs(query(customRef, where('remedyName', '==', remedyName), where('isActive', '==', true)));
 
-        // Map custom symptoms to match static format
         const customSymptoms = snapshot.docs.map(doc => ({
             id: `custom-${doc.id}`,
             text: doc.data().text,
             emoji: doc.data().emoji,
             imageUrl: doc.data().imageUrl || null,
-            difficulty: doc.data().difficulty || 1, // Default to Easy if not set
+            difficulty: doc.data().difficulty || 1,
             isCustom: true,
             firestoreId: doc.id
         }));
 
-        // Combine all symptoms
+        // If no own content exists at all, fall back to Cina default so the remedy stays playable
+        if (staticSymptoms.length === 0 && customSymptoms.length === 0) {
+            const fallback = CINA_DATA.map(s => ({ ...s, imageUrl: null, difficulty: 1 }));
+            return difficulty ? fallback.filter(s => s.difficulty === difficulty) : fallback;
+        }
+
         const allSymptoms = [...staticSymptoms, ...customSymptoms];
 
-        // Filter to specific difficulty bucket if provided
         if (difficulty) {
             return allSymptoms.filter(s => (s.difficulty || 1) === difficulty);
         }
@@ -153,8 +142,7 @@ export const getRemedyData = async (remedyName, db, difficulty) => {
         return allSymptoms;
     } catch (err) {
         console.error('Failed to load symptoms:', err);
-        // Fallback to static data only
-        return baseSymptoms;
+        return ownStaticSymptoms.length > 0 ? ownStaticSymptoms : CINA_DATA;
     }
 };
 
@@ -407,3 +395,20 @@ export const getSymptomCount = async (remedyName, db) => {
     };
 };
 
+/**
+ * Returns remedies from REMEDY_ORDER that have no own content (no static data, no custom symptoms).
+ * These are currently falling back to Cina default cards.
+ * @param {object} db - Firestore database instance
+ * @returns {Promise<string[]>} Array of remedy names missing their own cards
+ */
+export const getRemediesWithoutContent = async (db) => {
+    const customRef = collection(db, 'customSymptoms');
+    const snapshot = await getDocs(query(customRef, where('isActive', '==', true)));
+
+    const remediesWithCustom = new Set(snapshot.docs.map(d => d.data().remedyName));
+
+    return REMEDY_ORDER.filter(name =>
+        !Object.prototype.hasOwnProperty.call(REMEDY_DATA_MAP, name) &&
+        !remediesWithCustom.has(name)
+    );
+};

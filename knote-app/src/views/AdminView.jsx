@@ -3,7 +3,7 @@ import { collection, getDocs, query, orderBy, doc, updateDoc, arrayUnion, arrayR
 import { db } from '../lib/firebase';
 import { useAuth } from '../lib/auth.jsx';
 import { playSound } from '../lib/audio';
-import { REMEDY_ORDER } from '../lib/data';
+import { REMEDY_ORDER, getRemediesWithoutContent } from '../lib/data';
 
 // Format seconds into a human-readable duration
 const formatTotalTime = (totalSeconds) => {
@@ -145,12 +145,15 @@ const AdminView = ({ setView }) => {
     const [expandedUser, setExpandedUser] = useState(null);
     const [bulkOpen, setBulkOpen] = useState(false);
     const [bulkSaving, setBulkSaving] = useState(null);
+    const [missingContent, setMissingContent] = useState([]);
 
     useEffect(() => {
         if (!isAdmin) {
             setView('home');
             return;
         }
+
+        getRemediesWithoutContent(db).then(setMissingContent).catch(() => {});
 
         const fetchUsers = async () => {
             try {
@@ -294,6 +297,39 @@ const AdminView = ({ setView }) => {
                     </div>
                 ))}
             </div>
+
+            {/* Missing Content Warning */}
+            {missingContent.length > 0 && (
+                <div className="bg-amber-50 border border-amber-300 rounded-2xl sm:rounded-3xl p-3 sm:p-5 mb-4 shadow-sm">
+                    <div className="flex items-start gap-3">
+                        <span className="text-xl flex-shrink-0">⚠️</span>
+                        <div className="flex-1 min-w-0">
+                            <div className="font-bold text-amber-900 text-sm mb-1">
+                                {missingContent.length} {missingContent.length === 1 ? 'remedy is' : 'remedies are'} using default Cina cards
+                            </div>
+                            <div className="text-xs text-amber-800 mb-2">
+                                No symptom cards have been uploaded for these remedies yet. Players can still play them but will see Cina's cards instead of the correct ones.
+                            </div>
+                            <div className="flex flex-wrap gap-1.5 mb-3">
+                                {missingContent.map((name, i) => {
+                                    const idx = REMEDY_ORDER.indexOf(name);
+                                    return (
+                                        <span key={name} className="bg-amber-100 text-amber-900 border border-amber-300 px-2 py-0.5 rounded-full text-xs font-semibold">
+                                            #{idx + 1} {name}
+                                        </span>
+                                    );
+                                })}
+                            </div>
+                            <button
+                                onClick={() => { playSound('tap'); setView('manageSymptoms'); }}
+                                className="text-xs font-bold text-amber-900 underline hover:text-amber-700 transition"
+                            >
+                                → Go to Manage Symptoms to upload cards
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
 
             {/* Bulk Unlock */}
             <div className="bg-white rounded-2xl sm:rounded-3xl p-3 sm:p-5 shadow-lg border border-purple-50 mb-4">
