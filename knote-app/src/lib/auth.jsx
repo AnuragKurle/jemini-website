@@ -17,8 +17,8 @@ import {
 import { auth, db } from './firebase';
 import { REMEDY_ORDER } from './data.js';
 
-// Remedies 1-10 are unlocked by default; 11-20 must be earned sequentially
-const DEFAULT_UNLOCKED = REMEDY_ORDER.slice(0, 10).map(r => r.toUpperCase());
+// All 20 remedies are unlocked by default; adminGrantedRemedies can extend this further
+const DEFAULT_UNLOCKED = REMEDY_ORDER.map(r => r.toUpperCase());
 
 const AuthContext = createContext(null);
 
@@ -131,6 +131,8 @@ export const AuthProvider = ({ children }) => {
     );
 
     if (currentIndex < 0 || currentIndex >= REMEDY_ORDER.length - 1) return;
+    // Remedies 11-20 (next index >= 10) are admin-gated; game progression cannot unlock them
+    if (currentIndex + 1 >= 10) return;
 
     const nextRemedy = REMEDY_ORDER[currentIndex + 1];
 
